@@ -20,8 +20,6 @@ DEFAULT_SETTINGS = {
     "com_port": "COM1",
     "zoom_id": "1",
     "focuser_id": "2",
-    #"focus_step_pause": "0.02",
-    #"focus_step_period": "0.01",
     "focus_step_speed": "500"
 }
 
@@ -211,16 +209,6 @@ class MyFrame(wx.Frame):
         self.focus_step_speed_input = wx.TextCtrl(settings_tab)
         grid_sizer.Add(focus_step_speed_label, flag=wx.ALIGN_RIGHT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=10)
         grid_sizer.Add(self.focus_step_speed_input, flag=wx.EXPAND|wx.ALL, border=10)
-
-        #focus_step_period_label = wx.StaticText(settings_tab, label=f"Focus Step Period [{DEFAULT_SETTINGS['focus_step_period']}]:")
-        #self.focus_step_period_input = wx.TextCtrl(settings_tab)
-        #grid_sizer.Add(focus_step_period_label, flag=wx.ALIGN_RIGHT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=10)
-        #grid_sizer.Add(self.focus_step_period_input, flag=wx.EXPAND|wx.ALL, border=10)
-
-        #focus_step_pause_label = wx.StaticText(settings_tab, label=f"Focus Step Pause [{DEFAULT_SETTINGS['focus_step_pause']}]:")
-        #self.focus_step_pause_input = wx.TextCtrl(settings_tab)
-        #grid_sizer.Add(focus_step_pause_label, flag=wx.ALIGN_RIGHT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=10)
-        #grid_sizer.Add(self.focus_step_pause_input, flag=wx.EXPAND|wx.ALL, border=10)
 
         vbox_settings.Add(grid_sizer, flag=wx.EXPAND|wx.ALL, border=10)
 
