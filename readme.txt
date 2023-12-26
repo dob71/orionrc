@@ -1,6 +1,20 @@
 This Python code is for app controlling the Orion SkyQuest XT12g telescope focuser
 and zoom eyepiece. It's all work-in-progress/experimental at the moment.
 
+--------- 26 Dec 2023 --------
+Added the ability to disable Zoom controls.
+Set the zoom cotrols motr ID to 0 on the confirguration tab (or in the
+app config file to disable).
+The optical zoom controls and the use of the cell phone camera aren't
+really practical for the astronomy observatins. ASI183MC astronomy
+camera turned out to be an investment that made everything much easier
+for the remote observing setup.
+The resolution and pixel size of the camera are good enough to cover
+everything a 12" Orion telescope can do.
+The optical zoom control might still be useful for touch free adjusting
+when observing directly or through PVS-14.
+
+------------------------------
 The eyepiece used here is Baader Hyperion 8-24mm focal length zoom eyepiece.
 The remote control is built using two https://www.hiwonder.com/products/lx-225
 bus servo motors and https://www.hiwonder.com/products/hiwonder-ttl-usb-debugging-board.

@@ -21,8 +21,8 @@ class MCTRLSettings:
         self.timer_interval : float = 0.1      # The timer_tick() call interval
         self.focus_step_speed : int = 500      # focuser minimal step motor speed (in LX225 protocol units)
         self.serial_timeout : float = 0.2      # serial port communication timeout
-        self.zoom_min_angle : float = 270.0    # zoom min angle position
-        self.zoom_max_angle : float = 0.0      # zoom max angle position
+        self.zoom_min_angle : float = 0.0      # zoom min angle position
+        self.zoom_max_angle : float = 270.0    # zoom max angle position
         self.zoom_in_to_max_time : float = 5.0 # seconds to change zoom from its min to max or back (determines zoom motor speed)
 
 class MCTRL:
@@ -42,17 +42,19 @@ class MCTRL:
                 "Servo IDs for zoom and focus should be different"
             )
         LX225.initialize(MCTRL.s.com_port, MCTRL.s.serial_timeout)
-        MCTRL.zoom_motor = LX225(MCTRL.s.zoom_motor_id)
-        MCTRL.zoom_motor.servo_mode()
-        MCTRL.zoom_motor.set_angle_limits(0, 270)
-        MCTRL.zoom_motor.disable_torque()
-        MCTRL.zoom_motor_state = "READY"
-        MCTRL.focus_motor = LX225(MCTRL.s.focus_motor_id)
-        MCTRL.focus_motor.motor_mode(0)
-        MCTRL.focus_motor.disable_torque()
-        MCTRL.focus_position = 0
-        MCTRL.focus_steps = 0
-        MCTRL.focus_motor_state = "READY"
+        if MCTRL.s.zoom_motor_id != 0:
+            MCTRL.zoom_motor = LX225(MCTRL.s.zoom_motor_id)
+            MCTRL.zoom_motor.servo_mode()
+            MCTRL.zoom_motor.set_angle_limits(0, 270)
+            MCTRL.zoom_motor.disable_torque()
+            MCTRL.zoom_motor_state = "READY"
+        if MCTRL.s.focus_motor_id != 0:
+            MCTRL.focus_motor = LX225(MCTRL.s.focus_motor_id)
+            MCTRL.focus_motor.motor_mode(0)
+            MCTRL.focus_motor.disable_torque()
+            MCTRL.focus_position = 0
+            MCTRL.focus_steps = 0
+            MCTRL.focus_motor_state = "READY"
         time.sleep(1.0) # Without this the initial position read times out
 
     # Call to shut down motor controller
