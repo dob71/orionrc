@@ -9,8 +9,8 @@ from mctrl import *
 USER_HOME = os.path.expanduser("~")
 
 # Global configuration file names
-WINDOW_CONFIG_FILE = os.path.join(USER_HOME, "window_config.ini")
-APP_CONFIG_FILE = os.path.join(USER_HOME, "app_config.ini")
+WINDOW_CONFIG_FILE = os.path.join(USER_HOME, "orionrc_window_config.ini")
+APP_CONFIG_FILE = os.path.join(USER_HOME, "orionrc_app_config.ini")
 
 # Global timer firing rate in milliseconds
 TIMER_INTERVAL_MS = 100

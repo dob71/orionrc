@@ -14,6 +14,9 @@ everything a 12" Orion telescope can do.
 The optical zoom control might still be useful for touch free adjusting
 when observing directly or through PVS-14.
 
+Added "orionrc_" prefix to the config file names, now:
+"orionrc_window_config.ini" and "orionrc_app_config.ini"
+
 ------------------------------
 The eyepiece used here is Baader Hyperion 8-24mm focal length zoom eyepiece.
 The remote control is built using two https://www.hiwonder.com/products/lx-225
