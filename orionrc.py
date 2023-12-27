@@ -33,7 +33,7 @@ NEED_RESTART = False
 
 class MyApp(wx.App):
     def OnInit(self):
-        frame = MyFrame(None, title="My App")
+        frame = MyFrame(None, title="OrionRc")
         self.SetTopWindow(frame)
         frame.Show(True)
         return True
@@ -87,10 +87,14 @@ class MyFrame(wx.Frame):
             wx.MessageBox(f"Error initializing the motor controller: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
 
         # Set the initial slider position and "Current Zoom Level" on the zoom tab
-        self.set_zoom_current_values()
+        # If not enabled or not working remove the tab
+        if not self.set_zoom_current_values():
+            self.remove_tab(notebook, "Zoom")
 
         # Set the "Current Steps" and "Current Motor Angle" fields on the focus tab
-        self.set_focus_current_values()
+        # If not enabled or not working remove the tab
+        if not self.set_focus_current_values():
+            self.remove_tab(notebook, "Focus")
 
     def setup_zoom_tab(self, notebook):
         zoom_tab = wx.Panel(notebook)
@@ -336,6 +340,15 @@ class MyFrame(wx.Frame):
                     self.last_moving = time.time()
                     self.set_focus_current_values()
 
+    def remove_tab(self, notebook, tab_name):
+        # Find the tab page index by comparing the text, then remove the page
+        for ii in range(notebook.GetPageCount()):
+            if notebook.GetPageText(ii) == tab_name:
+                # Hide the content of the tab
+                notebook.RemovePage(ii)
+                return True
+        return False
+
     # ========= Zoom handlers =========
 
     def get_zoom_current_level(self):
@@ -350,10 +363,16 @@ class MyFrame(wx.Frame):
         return val
 
     def set_zoom_current_values(self):
+        # do nothing if not enabled
+        if not MCTRL.is_zoom_enabled():
+            return False
+
         # Set the initial slider position and "Current Zoom Level" value
         initial_zoom_level = self.get_zoom_current_level()
         self.slider.SetValue(initial_zoom_level)
         self.current_zoom_value.SetValue(str(initial_zoom_level))
+
+        return True
 
     def on_slider_change(self, event):
         # Get the slider value and set it as the "Target Zoom Level" value
@@ -394,12 +413,18 @@ class MyFrame(wx.Frame):
 
     # Update the UI with the focuser position and angle
     def set_focus_current_values(self):
+        # do nothing if not enabled
+        if not MCTRL.is_focus_enabled():
+            return False
+
         # Get the current steps and angle values
         current_steps = self.get_focus_current_steps()
         current_angle = self.get_focus_current_angle()
         # Update the "Current Steps" and "Current Motor Angle" fields
         self.current_steps_value.SetValue(str(current_steps))
         self.current_angle_value.SetValue(str(current_angle))
+
+        return True
 
     # Reset the focuser position "steps" counter
     def on_focus_reset_steps(self, event):

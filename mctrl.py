@@ -37,7 +37,7 @@ class MCTRL:
     @staticmethod
     def initialize(_s : MCTRLSettings) -> None:
         MCTRL.s = _s
-        if MCTRL.s.zoom_motor_id == MCTRL.s.focus_motor_id:
+        if MCTRL.s.zoom_motor_id == MCTRL.s.focus_motor_id and MCTRL.s.zoom_motor_id > 0:
             raise ServoArgumentError(
                 "Servo IDs for zoom and focus should be different"
             )
@@ -47,25 +47,37 @@ class MCTRL:
             MCTRL.zoom_motor.servo_mode()
             MCTRL.zoom_motor.set_angle_limits(0, 270)
             MCTRL.zoom_motor.disable_torque()
-            MCTRL.zoom_motor_state = "READY"
+            MCTRL.set_zoom_motor_state("READY")
         if MCTRL.s.focus_motor_id != 0:
             MCTRL.focus_motor = LX225(MCTRL.s.focus_motor_id)
             MCTRL.focus_motor.motor_mode(0)
             MCTRL.focus_motor.disable_torque()
             MCTRL.focus_position = 0
             MCTRL.focus_steps = 0
-            MCTRL.focus_motor_state = "READY"
+            MCTRL.set_focus_motor_state("READY")
         time.sleep(1.0) # Without this the initial position read times out
+
+    # set zoom motor state
+    @staticmethod
+    def set_zoom_motor_state(s) -> None:
+        #print(f"zoom: {MCTRL.zoom_motor_state} -> {s}")
+        MCTRL.zoom_motor_state = s
+
+    # set focus motor state
+    @staticmethod
+    def set_focus_motor_state(s) -> None:
+        #print(f"zoom: {MCTRL.focus_motor_state} -> {s}")
+        MCTRL.focus_motor_state = s
 
     # Call to shut down motor controller
     @staticmethod
     def shutdown() -> None:
         if MCTRL.zoom_motor_state != "UNINITIALIZED":
             MCTRL.zoom_motor.disable_torque()
-            MCTRL.zoom_motor_state = "UNINITIALIZED"
+            MCTRL.set_zoom_motor_state("UNINITIALIZED")
         if MCTRL.focus_motor_state != "UNINITIALIZED":
             MCTRL.focus_motor.disable_torque()
-            MCTRL.zoom_motor_state = "UNINITIALIZED"
+            MCTRL.set_focus_motor_state("UNINITIALIZED")
         del MCTRL.zoom_motor
         del MCTRL.focus_motor
         LX255.close()
@@ -78,7 +90,7 @@ class MCTRL:
         if MCTRL.zoom_motor_state == "BUSY":
             if MCTRL.zoom_motor_busy_until_time < time.time():
                 MCTRL.zoom_motor.disable_torque()
-                MCTRL.zoom_motor_state = "READY"
+                MCTRL.set_zoom_motor_state("READY")
                 ret.append("ZOOM_DONE")
             else:
                 ret.append("ZOOM_MOVING")
@@ -87,7 +99,7 @@ class MCTRL:
             if MCTRL.focus_steps == 0:
                 MCTRL.focus_motor.motor_mode(0);
                 MCTRL.focus_motor.disable_torque()
-                MCTRL.focus_motor_state = "READY"
+                MCTRL.set_focus_motor_state("READY")
                 ret.append("FOCUS_DONE")
             else:
                 MCTRL.focus_do_steps()
@@ -122,7 +134,7 @@ class MCTRL:
             )
         elif MCTRL.zoom_motor_state == "BUSY":
             MCTRL.zoom_motor.disable_torque()
-            MCTRL.zoom_motor_state = "READY"
+            MCTRL.set_zoom_motor_state("READY")
         elif MCTRL.zoom_motor_state == "READY":
             pass
         else:
@@ -139,7 +151,7 @@ class MCTRL:
             MCTRL.zoom_motor.enable_torque()
             MCTRL.zoom_motor.move(new_angle_real, time_ms)
             MCTRL.zoom_motor_busy_until_time = time.time() + wait_time + 0.1 + (wait_time * 0.1) # give it 0.1sec + 10% extra time
-            MCTRL.zoom_motor_state = "BUSY"
+            MCTRL.set_zoom_motor_state("BUSY")
 
 
     # Returns the focuser position in "steps" made (can be negative)
@@ -170,7 +182,7 @@ class MCTRL:
         elif MCTRL.focus_motor_state == "READY":
             MCTRL.focus_motor.enable_torque()
             MCTRL.focus_steps = value
-            MCTRL.focus_motor_state = "BUSY"
+            MCTRL.set_focus_motor_state("BUSY")
         elif MCTRL.focus_motor_state == "BUSY":
             MCTRL.focus_steps += value
         else:
@@ -192,3 +204,14 @@ class MCTRL:
             MCTRL.focus_position += int(copysign(10, MCTRL.focus_steps))
             MCTRL.focus_steps -= int(copysign(10, MCTRL.focus_steps))
         
+    # Check if Zoom is enabled
+    # Returns true if the Zoom motor is initialized
+    @staticmethod
+    def is_zoom_enabled():
+        return MCTRL.zoom_motor_state != "UNINITIALIZED"
+
+    # Check if Zoom is enabled
+    # Returns true if the Zoom motor is initialized
+    @staticmethod
+    def is_focus_enabled():
+        return MCTRL.focus_motor_state != "UNINITIALIZED"
