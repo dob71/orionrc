@@ -271,6 +271,9 @@ class MyFrame(wx.Frame):
             except (configparser.NoSectionError, configparser.NoOptionError) as e:
                 wx.MessageBox(f"Error loading settings: {str(e)}", "Error", wx.OK | wx.ICON_ERROR)
 
+        if not config.has_section("Settings"):
+            config.add_section("Settings")
+
         for option, default_value in DEFAULT_SETTINGS.items():
             if not config.has_option("Settings", option) or config.get("Settings", option) == "":
                 config.set("Settings", option, default_value)
