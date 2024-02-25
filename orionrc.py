@@ -20,7 +20,8 @@ DEFAULT_SETTINGS = {
     "com_port": "COM1",
     "zoom_id": "1",
     "focuser_id": "2",
-    "focus_step_speed": "500"
+    "focus_step_speed": "500",
+    "focus_pos_precision": "0.3",
 }
 
 # Zoom min and max values for zoom control
@@ -137,8 +138,8 @@ class MyFrame(wx.Frame):
         current_steps_label = wx.StaticText(focus_tab, label="Current Steps:")
         hbox_current_steps.Add(current_steps_label, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
 
-        self.current_steps_value = wx.TextCtrl(focus_tab, style=wx.TE_READONLY|wx.ALIGN_RIGHT)
-        hbox_current_steps.Add(self.current_steps_value, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
+        self.current_position_value = wx.TextCtrl(focus_tab, style=wx.TE_READONLY|wx.ALIGN_RIGHT)
+        hbox_current_steps.Add(self.current_position_value, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
 
         # Add the Reset button
         reset_button = wx.Button(focus_tab, label="Reset")
@@ -180,12 +181,31 @@ class MyFrame(wx.Frame):
 
         hbox_buttons.Add(vbox_up, flag=wx.EXPAND|wx.ALL, border=10)
         hbox_buttons.Add(vbox_down, flag=wx.EXPAND|wx.ALL, border=10)
+       
+        hbox_test = wx.BoxSizer(wx.HORIZONTAL)
+        test_in_label = wx.StaticText(focus_tab, label="Test In:")
+        hbox_test.Add(test_in_label, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
+        self.test_in_value = wx.TextCtrl(focus_tab, style=wx.ALIGN_RIGHT)
+        hbox_test.Add(self.test_in_value, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
+        test_button = wx.Button(focus_tab, label="Run")
+        hbox_test.Add(test_button, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
+        test_button.Bind(wx.EVT_BUTTON, self.on_test)
+        test_out_label = wx.StaticText(focus_tab, label="Out:")
+        hbox_test.Add(test_out_label, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
+        self.test_out_value = wx.TextCtrl(focus_tab, style=wx.TE_READONLY|wx.ALIGN_RIGHT)
+        hbox_test.Add(self.test_out_value, flag=wx.ALL|wx.ALIGN_CENTER_VERTICAL, border=10)
+        vbox_focus.Add(hbox_test, flag=wx.EXPAND|wx.ALL, border=10)
 
         vbox_focus.Add(hbox_buttons, flag=wx.EXPAND|wx.ALL, border=10)
 
         focus_tab.SetSizer(vbox_focus)
 
         notebook.AddPage(focus_tab, "Focus")
+
+    def on_test(self, event):
+        in_val = self.test_in_value.GetValue()
+        out_val = MCTRL.test_send_command(in_val)
+        self.test_out_value.SetValue(str(out_val))
 
     def setup_settings_tab(self, notebook):
         settings_tab = wx.Panel(notebook)
@@ -213,6 +233,11 @@ class MyFrame(wx.Frame):
         self.focus_step_speed_input = wx.TextCtrl(settings_tab)
         grid_sizer.Add(focus_step_speed_label, flag=wx.ALIGN_RIGHT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=10)
         grid_sizer.Add(self.focus_step_speed_input, flag=wx.EXPAND|wx.ALL, border=10)
+
+        focus_pos_precision_label = wx.StaticText(settings_tab, label=f"Focus Position Precision [{DEFAULT_SETTINGS['focus_pos_precision']}]:")
+        self.focus_pos_precision_input = wx.TextCtrl(settings_tab)
+        grid_sizer.Add(focus_pos_precision_label, flag=wx.ALIGN_RIGHT|wx.ALIGN_CENTER_VERTICAL|wx.ALL, border=10)
+        grid_sizer.Add(self.focus_pos_precision_input, flag=wx.EXPAND|wx.ALL, border=10)
 
         vbox_settings.Add(grid_sizer, flag=wx.EXPAND|wx.ALL, border=10)
 
@@ -246,7 +271,8 @@ class MyFrame(wx.Frame):
             "focuser_id": self.focuser_id_input.GetValue(),
             #"focus_step_period": self.focus_step_period_input.GetValue(),
             #"focus_step_pause": self.focus_step_pause_input.GetValue(),
-            "focus_step_speed": self.focus_step_speed_input.GetValue()
+            "focus_step_speed": self.focus_step_speed_input.GetValue(),
+            "focus_pos_precision": self.focus_pos_precision_input.GetValue(),
         }
 
         try:
@@ -286,6 +312,8 @@ class MyFrame(wx.Frame):
         self.settings.focus_motor_id = int(config.get("Settings", "focuser_id"))
         self.focus_step_speed_input.SetValue(config.get("Settings", "focus_step_speed"))
         self.settings.focus_step_speed = int(config.get("Settings", "focus_step_speed"))
+        self.focus_pos_precision_input.SetValue(config.get("Settings", "focus_pos_precision"))
+        self.settings.focus_pos_precision = float(config.get("Settings", "focus_pos_precision"))
         #self.focus_step_period_input.SetValue(config.get("Settings", "focus_step_period"))
         #self.settings.focus_step_period = float(config.get("Settings", "focus_step_period"))
         #self.focus_step_pause_input.SetValue(config.get("Settings", "focus_step_pause"))
@@ -323,7 +351,7 @@ class MyFrame(wx.Frame):
 
     def restart_application(self):
         global NEED_RESTART
-        NEED_RESTART = True
+        NEED_RESTART = True        
         self.Close()
 
     def on_timer(self, event):
@@ -339,7 +367,7 @@ class MyFrame(wx.Frame):
             elif val == "FOCUS_MOVE":
                 if self.last_moving == None:
                     self.last_moving = time.time()
-                elif time.time() - self.last_moving > 1.0:
+                elif time.time() - self.last_moving > 0.5:
                     self.last_moving = time.time()
                     self.set_focus_current_values()
 
@@ -400,14 +428,14 @@ class MyFrame(wx.Frame):
 
     # ========= Focus handlers =========
 
-    # Get focuser current position in steps
-    def get_focus_current_steps(self):
-        val = MCTRL.get_focus_current_steps()
+    # Get focuser current position in steps (degress of the handle turn angle)
+    def get_focus_current_position(self):
+        val = MCTRL.get_focus_current_position()
         if val == None:
             val = "Unknown"
         return val
 
-    # Get focuser motor angle
+    # Get focuser motor angle (unlike position this does not track the full 360 deg turns)
     def get_focus_current_angle(self):
         val = MCTRL.get_focus_current_angle()
         if val == None:
@@ -421,18 +449,18 @@ class MyFrame(wx.Frame):
             return False
 
         # Get the current steps and angle values
-        current_steps = self.get_focus_current_steps()
+        current_steps = self.get_focus_current_position()
         current_angle = self.get_focus_current_angle()
         # Update the "Current Steps" and "Current Motor Angle" fields
-        self.current_steps_value.SetValue(str(current_steps))
+        self.current_position_value.SetValue(str(current_steps))
         self.current_angle_value.SetValue(str(current_angle))
 
         return True
 
     # Reset the focuser position "steps" counter
     def on_focus_reset_steps(self, event):
-        MCTRL.clear_focus_current_steps()
-        self.current_steps_value.SetValue('0')
+        MCTRL.reset_focus_current_position()
+        self.current_position_value.SetValue('0')
 
     # Move the focuser up or down to the requested number of "steps"
     def on_focus_button(self, event, value):

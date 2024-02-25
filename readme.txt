@@ -1,6 +1,19 @@
 This Python code is for app controlling the Orion SkyQuest XT12g telescope focuser
 and zoom eyepiece. It's all work-in-progress/experimental at the moment.
 
+--------- 25 Feb 2024 --------
+Spun off dev branch for transitioning to HX-35hm.
+Changed the focuser bracket design to accept the bigger HX-35hm motor,
+made it more sturdy, combined the bracket with the controller compartment.
+The experimental focuser motor controller code is now using the position
+encoder instead of just timing steps. The motor has to be used in the
+"motor mode" since the board's "servo mode" can only handle less
+than 360 degrees moves.
+The experimental focuser motor controller code also has some extra
+logic to collect data for building the motor response model.
+The HX-35hm appears to be able to handling the cold (at least the
+refrigerator's freezer tempratures).
+
 --------- 26 Dec 2023 --------
 Added the ability to disable Zoom controls.
 Set the zoom cotrols motr ID to 0 on the confirguration tab (or in the

@@ -20,35 +20,34 @@ class ServoArgumentError(ServoError):
 class ServoLogicalError(ServoError):
     pass
 
-class LX225:
+class HX35:
     _controller = None
 
     @staticmethod
     def initialize(port: str, timeout: float = 0.02) -> None:
-        if LX225._controller is not None:
-            LX225._controller.reset_input_buffer()
-            LX225._controller.reset_output_buffer()
-            LX225._controller.close()
-
-        LX225._controller = serial.Serial(
-            port=port, baudrate=115200, timeout=timeout, write_timeout=timeout
-        )
+        HX35.close()
+        if HX35._controller is None:
+            HX35._controller = serial.Serial(
+                port=port, baudrate=115200, timeout=timeout, write_timeout=timeout
+            )
 
     @staticmethod
     def close() -> None:
-        if LX225._controller is not None:
-            LX225._controller.reset_input_buffer()
-            LX225._controller.reset_output_buffer()
-            LX225._controller.close()
+        if HX35._controller is not None:
+            HX35._controller.reset_input_buffer()
+            HX35._controller.reset_output_buffer()
+            HX35._controller.close()
+            del HX35._controller
+            HX35._controller = None
 
     @staticmethod
     def set_timeout(seconds: float) -> None:
-        LX225._controller.timeout = seconds
-        LX225._controller.write_timeout = seconds
+        HX35._controller.timeout = seconds
+        HX35._controller.write_timeout = seconds
 
     @staticmethod
     def get_timeout() -> float:
-        return LX225._controller.timeout
+        return HX35._controller.timeout
 
     def __init__(self, id_: int, disable_torque: bool = False) -> None:
         if id_ < 0 or id_ > 253:
@@ -57,14 +56,14 @@ class LX225:
             )
 
         self._id = id_
-        self._commanded_angle = LX225._to_servo_range(self.get_physical_angle())
+        self._commanded_angle = HX35._to_servo_range(self.get_physical_angle())
         self._waiting_angle = self._commanded_angle
         self._waiting_for_move = False
-        self._angle_offset = LX225._to_servo_range(
+        self._angle_offset = HX35._to_servo_range(
             self.get_angle_offset(poll_hardware=True)
         )
         self._angle_limits = tuple(
-            map(LX225._to_servo_range, self.get_angle_limits(poll_hardware=True))
+            map(HX35._to_servo_range, self.get_angle_limits(poll_hardware=True))
         )
         self._vin_limits = self.get_vin_limits(poll_hardware=True)
         self._temp_limit = self.get_temp_limit(poll_hardware=True)
@@ -96,38 +95,50 @@ class LX225:
     def _check_packet(packet: list[int], servo_id: int) -> None:
         if sum(packet) == 0:
             raise ServoTimeoutError(f"Servo {servo_id}: not responding", servo_id)
-        if LX225._checksum(packet[:-1]) != packet[-1]:
-            LX225._controller.flushInput()
-            raise ServoChecksumError(f"Servo {servo_id}: bad checksum", servo_id)
+        c_sum = HX35._checksum(packet[:-1])
+        if c_sum != packet[-1]:
+            HX35._controller.flushInput()
+            raise ServoChecksumError(f"Servo {servo_id}: bad checksum, expected {c_sum}, got {packet[-1]}", servo_id)
 
     @staticmethod
     def _send_packet(packet: list[int]) -> None:
         packet = [0x55, 0x55, *packet]
-        packet.append(LX225._checksum(packet))
-        LX225._controller.write(bytes(packet))
+        packet.append(HX35._checksum(packet))
+        HX35._controller.write(bytes(packet))
 
+    # Packet structure:
+    # -------------------------------------------------------------------
+    # Header   |ID number |Data Length |Command |Parameter     |Checksum
+    # -------------------------------------------------------------------
+    # 0x55,0x55|ID        |Length      |Cmd     |Prm 1... Prm N|Checksum
+    # -------------------------------------------------------------------
     @staticmethod
     def _read_packet(num_bytes: int, servo_id: int) -> list[int]:
-        received = LX225._controller.read(num_bytes + 6)
+        received = HX35._controller.read(num_bytes + 6)
 
-        if len(received) != num_bytes + 6:
-            raise ServoTimeoutError(
-                f"Servo {servo_id}: {len(received)} bytes (expected {num_bytes})",
-                servo_id,
-            )
+        if len(received) < num_bytes + 6:
+            raise ServoTimeoutError(f"Servo {servo_id}: got {len(received)} bytes (expected {num_bytes})", servo_id)
 
-        if LX225._checksum(received[:-1]) != received[-1]:
-            raise ServoChecksumError(f"Servo {servo_id}: bad checksum", servo_id)
+        if received[0] != received[1] != 0x55:
+            raise ServoLogicalError(f"Servo {servo_id}: invalid packet header {received[0]},{received[1]}, expected 85,85", servo_id)
+
+        pkt_len = received[3]
+        if pkt_len != num_bytes + 3:
+            raise ServoLogicalError(f"Servo {servo_id}: invalid packet length {pkt_len}, expected {num_bytes + 3} bytes", servo_id)
+
+        c_sum = HX35._checksum(received[:-1])
+        if c_sum != received[-1]:
+            raise ServoChecksumError(f"Servo {servo_id}: bad checksum, expected {c_sum}, got {received[-1]}", servo_id)
 
         return list(received[5:-1])
 
     @staticmethod
     def _to_servo_range(angle: float) -> int:
-        return round(angle * 100 / 27)
+        return round(angle * 1500 / 360)
 
     @staticmethod
     def _from_servo_range(angle: int) -> float:
-        return angle * 27 / 100
+        return angle * 360 / 1500
 
     @staticmethod
     def _check_within_limits(
@@ -142,6 +153,14 @@ class LX225:
                 f"Servo {servo_id}: {variable_name} must be between {lower_limit} and {upper_limit} (received {value})",
                 servo_id,
             )
+
+    @staticmethod
+    def _signed_byte(val: int) -> int:
+        return val if val < 128 else val - 256
+
+    @staticmethod
+    def _signed_word(val: int) -> int:
+        return val - 65536 if val > 32767 else val
 
     ################ Write Commands ################
 
@@ -158,26 +177,31 @@ class LX225:
                 self._id,
             )
 
-        LX225._check_within_limits(angle, 0, 270, "angle", self._id)
-        LX225._check_within_limits(
+        HX35._check_within_limits(angle, 0, 360, "angle", self._id)
+        HX35._check_within_limits(
             angle,
-            LX225._from_servo_range(self._angle_limits[0]),
-            LX225._from_servo_range(self._angle_limits[1]),
+            HX35._from_servo_range(self._angle_limits[0]),
+            HX35._from_servo_range(self._angle_limits[1]),
             "angle",
             self._id,
         )
 
-        angle = LX225._to_servo_range(angle)
+        angle = HX35._to_servo_range(angle)
 
         if relative:
             angle += self._commanded_angle
 
-        if wait:
-            packet = [self._id, 7, 7, *LX225._to_bytes(angle), *LX225._to_bytes(time)]
-        else:
-            packet = [self._id, 7, 1, *LX225._to_bytes(angle), *LX225._to_bytes(time)]
+        # HX35 has issues going close to 0, (overshoots and moves all the way to max)
+        # anything too close might throw it off (emprically, limiting at 2 seemed to work).
+        if angle == 0:
+            angle = 2
 
-        LX225._send_packet(packet)
+        if wait:
+            packet = [self._id, 7, 7, *HX35._to_bytes(angle), *HX35._to_bytes(time)]
+        else:
+            packet = [self._id, 7, 1, *HX35._to_bytes(angle), *HX35._to_bytes(time)]
+
+        HX35._send_packet(packet)
 
         if wait:
             self._waiting_angle = angle
@@ -199,7 +223,7 @@ class LX225:
             )
 
         packet = [self._id, 3, 11]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
         self._commanded_angle = self._waiting_angle
         self._waiting_for_move = False
@@ -212,57 +236,57 @@ class LX225:
             )
 
         packet = [self._id, 3, 12]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        self._commanded_angle = LX225._to_servo_range(self.get_physical_angle())
+        self._commanded_angle = HX35._to_servo_range(self.get_physical_angle())
 
     def set_id(self, id_: int) -> None:
-        LX225._check_within_limits(id_, 0, 253, "servo ID", self._id)
+        HX35._check_within_limits(id_, 0, 253, "servo ID", self._id)
 
         packet = [self._id, 4, 13, id_]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._id = id_
 
     def set_angle_offset(self, offset: int, permanent: bool = False) -> None:
-        LX225._check_within_limits(offset, -30, 30, "angle offset", self._id)
+        HX35._check_within_limits(offset, -30, 30, "angle offset", self._id)
 
-        offset = LX225._to_servo_range(offset)
+        offset = HX35._to_servo_range(offset)
         if offset < 0:
             offset = 256 + offset
 
         packet = [self._id, 4, 17, offset]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._angle_offset = offset
 
         if permanent:
             packet = [self._id, 3, 18]
-            LX225._send_packet(packet)
+            HX35._send_packet(packet)
 
     def set_angle_limits(self, lower_limit: float, upper_limit: float) -> None:
-        LX225._check_within_limits(lower_limit, 0, 270, "lower limit", self._id)
-        LX225._check_within_limits(upper_limit, 0, 270, "upper limit", self._id)
+        HX35._check_within_limits(lower_limit, 0, 360, "lower limit", self._id)
+        HX35._check_within_limits(upper_limit, 0, 360, "upper limit", self._id)
         if upper_limit < lower_limit:
             raise ServoArgumentError(
                 f"Servo {self._id}: lower limit (received {lower_limit}) must be less than upper limit (received {upper_limit})",
                 self._id,
             )
 
-        lower_limit = LX225._to_servo_range(lower_limit)
-        upper_limit = LX225._to_servo_range(upper_limit)
+        lower_limit = HX35._to_servo_range(lower_limit)
+        upper_limit = HX35._to_servo_range(upper_limit)
 
         packet = [
             self._id,
             7,
             20,
-            *LX225._to_bytes(lower_limit),
-            *LX225._to_bytes(upper_limit),
+            *HX35._to_bytes(lower_limit),
+            *HX35._to_bytes(upper_limit),
         ]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._angle_limits = lower_limit, upper_limit
 
     def set_vin_limits(self, lower_limit: int, upper_limit: int) -> None:
-        LX225._check_within_limits(lower_limit, 4500, 12000, "lower limit", self._id)
-        LX225._check_within_limits(upper_limit, 4500, 12000, "upper limit", self._id)
+        HX35._check_within_limits(lower_limit, 4500, 12000, "lower limit", self._id)
+        HX35._check_within_limits(upper_limit, 4500, 12000, "upper limit", self._id)
         if upper_limit < lower_limit:
             raise ServoArgumentError(
                 f"Servo {self._id}: lower limit (received {lower_limit}) must be less than upper limit (received {upper_limit})",
@@ -273,17 +297,21 @@ class LX225:
             self._id,
             7,
             22,
-            *LX225._to_bytes(lower_limit),
-            *LX225._to_bytes(upper_limit),
+            *HX35._to_bytes(lower_limit),
+            *HX35._to_bytes(upper_limit),
         ]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._vin_limits = lower_limit, upper_limit
 
     def set_temp_limit(self, upper_limit: int) -> None:
-        LX225._check_within_limits(upper_limit, 50, 100, "temperature limit", self._id)
+        # The documented max limit range is 50-100, but other values work too.
+        # Note that when the temperature is below 0C the reported temperature has
+        # the high bit set (i.e. signed byte), it does not seem to trigger the
+        # overheat protection.
+        HX35._check_within_limits(upper_limit, 50, 100, "temperature limit", self._id)
 
         packet = [self._id, 4, 24, upper_limit]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._temp_limit = upper_limit
 
     def motor_mode(self, speed: int) -> None:
@@ -292,52 +320,47 @@ class LX225:
                 f"Servo {self._id}: torque must be enabled to control movement",
                 self._id,
             )
-        # if self._motor_mode:
-        #   raise ServoLogicalError(f'Servo {self._id}: servo is already in motor mode')
 
-        LX225._check_within_limits(speed, -1000, 1000, "motor speed", self._id)
+        HX35._check_within_limits(speed, -1000, 1000, "motor speed", self._id)
         if speed < 0:
             speed += 65536
 
-        packet = [self._id, 7, 29, 1, 0, *LX225._to_bytes(speed)]
-        LX225._send_packet(packet)
+        packet = [self._id, 7, 29, 1, 0, *HX35._to_bytes(speed)]
+        HX35._send_packet(packet)
         self._motor_mode = True
 
     def servo_mode(self) -> None:
-        # if not self._motor_mode:
-        #   raise ServoLogicalError(f'Servo {self._id}: servo is already in servo mode')
-
         packet = [self._id, 7, 29, 0, 0, 0, 0]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._motor_mode = False
 
     def enable_torque(self) -> None:
         packet = [self._id, 4, 31, 0]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._torque_enabled = True
 
     def disable_torque(self) -> None:
         packet = [self._id, 4, 31, 1]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
         self._torque_enabled = False
 
     ################ Read Commands ################
 
     def get_last_instant_move_hw(self) -> tuple[float, int]:
         packet = [self._id, 3, 2]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(4, self._id)
-        angle = LX225._from_servo_range(received[0] + received[1] * 256)
+        received = HX35._read_packet(4, self._id)
+        angle = HX35._from_servo_range(received[0] + received[1] * 256)
         time = received[2] + received[3] * 256
         return angle, time
 
     def get_last_delayed_move_hw(self) -> tuple[float, int]:
         packet = [self._id, 3, 8]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(4, self._id)
-        angle = LX225._from_servo_range(received[0] + received[1] * 256)
+        received = HX35._read_packet(4, self._id)
+        angle = HX35._from_servo_range(received[0] + received[1] * 256)
         time = received[2] + received[3] * 256
         return angle, time
 
@@ -346,36 +369,35 @@ class LX225:
             return self._id
 
         packet = [self._id, 3, 14]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(1, self._id)
+        received = HX35._read_packet(1, self._id)
         return received[0]
 
     def get_angle_offset(self, poll_hardware: bool = False) -> int:
         if not poll_hardware:
-            return LX225._from_servo_range(self._angle_offset)
+            return HX35._from_servo_range(self._angle_offset)
 
         packet = [self._id, 3, 19]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(1, self._id)
-        if received[0] > 125:
-            return LX225._from_servo_range(received[0] - 256)
+        received = HX35._read_packet(2, self._id)
+        angle_offset = HX35._from_servo_range(received[0] + received[1] * 256)
 
-        return LX225._from_servo_range(received[0])
+        return HX35._from_servo_range(HX35._signed_word(angle_offset))
 
     def get_angle_limits(self, poll_hardware: bool = False) -> tuple[float, float]:
         if not poll_hardware:
-            return LX225._from_servo_range(
+            return HX35._from_servo_range(
                 self._angle_limits[0]
-            ), LX225._from_servo_range(self._angle_limits[1])
+            ), HX35._from_servo_range(self._angle_limits[1])
 
         packet = [self._id, 3, 21]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(4, self._id)
-        lower_limit = LX225._from_servo_range(received[0] + received[1] * 256)
-        upper_limit = LX225._from_servo_range(received[2] + received[3] * 256)
+        received = HX35._read_packet(4, self._id)
+        lower_limit = HX35._from_servo_range(received[0] + received[1] * 256)
+        upper_limit = HX35._from_servo_range(received[2] + received[3] * 256)
         return lower_limit, upper_limit
 
     def get_vin_limits(self, poll_hardware: bool = False) -> tuple[int, int]:
@@ -383,9 +405,9 @@ class LX225:
             return self._vin_limits
 
         packet = [self._id, 3, 23]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(4, self._id)
+        received = HX35._read_packet(4, self._id)
         lower_limit = received[0] + received[1] * 256
         upper_limit = received[2] + received[3] * 256
         return lower_limit, upper_limit
@@ -395,19 +417,19 @@ class LX225:
             return self._temp_limit
 
         packet = [self._id, 3, 25]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(1, self._id)
-        return received[0]
+        received = HX35._read_packet(1, self._id)
+        return HX35._signed_byte(received[0])
 
     def is_motor_mode(self, poll_hardware: bool = False) -> bool:
         if not poll_hardware:
             return self._motor_mode
 
         packet = [self._id, 3, 30]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(4, self._id)
+        received = HX35._read_packet(4, self._id)
         return received[0] == 1
 
     def get_motor_speed(self, poll_hardware: bool = False) -> int:
@@ -418,9 +440,9 @@ class LX225:
             return self._motor_speed
 
         packet = [self._id, 3, 30]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(4, self._id)
+        received = HX35._read_packet(4, self._id)
         if received[0] == 1:
             speed = received[2] + received[3] * 256
             return speed - 65536 if speed > 32767 else speed
@@ -432,9 +454,9 @@ class LX225:
             return self._torque_enabled
 
         packet = [self._id, 3, 32]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(1, self._id)
+        received = HX35._read_packet(1, self._id)
         return received[0] == 1
 
     def is_led_power_on(self, poll_hardware: bool = False) -> bool:
@@ -442,9 +464,9 @@ class LX225:
             return self._led_powered
 
         packet = [self._id, 3, 34]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(1, self._id)
+        received = HX35._read_packet(1, self._id)
         return received[0] == 0
 
     def get_led_error_triggers(
@@ -454,9 +476,9 @@ class LX225:
             return self._led_error_triggers
 
         packet = [self._id, 3, 36]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(1, self._id)
+        received = HX35._read_packet(1, self._id)
         over_temperature = received[0] & 1 != 0
         over_voltage = received[0] & 2 != 0
         rotor_locked = received[0] & 4 != 0
@@ -464,31 +486,31 @@ class LX225:
 
     def get_temp(self) -> int:
         packet = [self._id, 3, 26]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(1, self._id)
-        return received[0]
+        received = HX35._read_packet(1, self._id)
+        return HX35._signed_byte(received[0])
 
-    def get_vin(self) -> int:
+    def get_vin(self) -> float:
         packet = [self._id, 3, 27]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(2, self._id)
-        return received[0] + received[1] * 256
+        received = HX35._read_packet(2, self._id)
+        return (received[0] + received[1] * 256) / 1000.0
 
     def get_physical_angle(self) -> float:
         packet = [self._id, 3, 28]
-        LX225._send_packet(packet)
+        HX35._send_packet(packet)
 
-        received = LX225._read_packet(2, self._id)
+        received = HX35._read_packet(2, self._id)
         angle = received[0] + received[1] * 256
-        return LX225._from_servo_range(angle - 65536 if angle > 32767 else angle)
+        return HX35._from_servo_range(HX35._signed_word(angle))
 
     def get_commanded_angle(self) -> float:
-        return LX225._from_servo_range(self._commanded_angle)
+        return HX35._from_servo_range(self._commanded_angle)
 
     def get_waiting_angle(self) -> float:
         if not self._waiting_for_move:
             raise ServoLogicalError(f"Servo {self._id}: not waiting for move", self._id)
 
-        return LX225._from_servo_range(self._waiting_angle)
+        return HX35._from_servo_range(self._waiting_angle)
